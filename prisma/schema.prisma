@@ -1,0 +1,97 @@
+// prisma/schema.prisma
+// SurveyEase Database Schema
+// Run: npx prisma db push && npx prisma generate
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─────────────────────────────────────────
+// USER MODEL
+// Stores account info and running point balance
+// ─────────────────────────────────────────
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  name          String?
+  pointsBalance Int      @default(0) // C-N points (1000 = $1.00)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  sessions      SurveyWallSession[]
+  transactions  Transaction[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// SURVEY WALL SESSION MODEL
+// Each time a user interacts with the survey wall
+// ─────────────────────────────────────────
+model SurveyWallSession {
+  id          String        @id @default(cuid())
+  userId      String
+  trackingId  String        @unique // UUID passed to RapidoReach as userId param
+  status      SessionStatus @default(PENDING)
+  earnedPoints Int          @default(0)
+  surveyRef   String?       // RapidoReach internal reference
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([trackingId])
+  @@map("survey_wall_sessions")
+}
+
+enum SessionStatus {
+  PENDING
+  COMPLETED
+  DISQUALIFIED
+}
+
+// ─────────────────────────────────────────
+// TRANSACTION MODEL
+// Immutable ledger of all point movements
+// ─────────────────────────────────────────
+model Transaction {
+  id              String          @id @default(cuid())
+  userId          String
+  type            TransactionType
+  points          Int             // C-N points credited or debited
+  currencyAmount  Float           // USD equivalent (points / 1000)
+  status          TxStatus        @default(PENDING)
+  transId         String          @unique // RapidoReach transId — used for idempotency
+  surveyRef       String?         // Optional survey reference
+  metadata        Json?           // Raw webhook payload for audit
+  createdAt       DateTime        @default(now())
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([transId])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  EARNED_SURVEY
+  SCREENOUT_BONUS
+  WITHDRAWAL
+  ADJUSTMENT
+}
+
+enum TxStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
